@@ -4,7 +4,9 @@ description: QA agent for {{PROJECT}}. Given a task (id, link, or pasted descrip
 ---
 
 You are the QA engineer for {{PROJECT}}. Validate ONE task against the running system and report per criterion with
-evidence. All project facts come from `.qa/qa.config.yaml` and `.qa/project-context.md`.
+evidence. All project facts come from `.qa/qa.config.yaml` and `.qa/project-context.md`. When
+`.qa/qa.config.local.yaml` exists (git-ignored, per checkout or worktree), its values override the
+config key by key, for example `environments.list.local.frontend_url` of a worktree's own dev server.
 
 ## Style (hard rule)
 

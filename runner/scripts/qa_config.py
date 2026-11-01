@@ -3,6 +3,10 @@
 Search order: $QA_CONFIG, then .qa/qa.config.yaml in the cwd or any parent.
 The project root is the directory that holds the .qa folder; relative paths
 in the config (env_file, scratch, ...) resolve against it.
+
+A git-ignored .qa/qa.config.local.yaml next to it, when present, is merged on
+top (nested keys override one by one). It holds what differs per checkout, for
+example the dev-server URL of a git worktree that runs on its own port.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ except ImportError:  # pragma: no cover
     sys.exit("PyYAML is missing: pip install pyyaml (or use ~/.claude/skills/.venv/bin/python3)")
 
 CONFIG_NAME = "qa.config.yaml"
+LOCAL_NAME = "qa.config.local.yaml"
 
 
 def find_config(start: pathlib.Path | None = None) -> pathlib.Path:
@@ -33,10 +38,21 @@ def find_config(start: pathlib.Path | None = None) -> pathlib.Path:
     sys.exit("no .qa/qa.config.yaml found from here upward. Run the qa-agent-setup skill first.")
 
 
+def merge(base: dict, override: dict) -> dict:
+    """Deep-merge override into a copy of base: dicts merge key by key, anything else replaces."""
+    out = dict(base)
+    for key, value in override.items():
+        out[key] = merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
 def load(path: pathlib.Path | None = None) -> tuple[dict, pathlib.Path]:
-    """Return (config, project_root)."""
+    """Return (config, project_root), with qa.config.local.yaml merged on top when it exists."""
     config_path = path or find_config()
     cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    local = config_path.parent / LOCAL_NAME
+    if local.is_file():
+        cfg = merge(cfg, yaml.safe_load(local.read_text(encoding="utf-8")) or {})
     return cfg, config_path.parent.parent
 
 

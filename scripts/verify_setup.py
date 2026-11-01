@@ -111,18 +111,29 @@ def check_config(cfg: dict) -> None:
 
 # ------------------------------------------------------------------ files, git hygiene
 
+def is_ignored(root: pathlib.Path, entry: str) -> bool:
+    """Ask git, which understands globs (.env*.local), negation (!x), comments, nested and global
+    ignore files. Outside a git repo, fall back to finding the entry in .gitignore as text."""
+    proc = subprocess.run(["git", "check-ignore", "-q", entry], cwd=root, capture_output=True)
+    if proc.returncode in (0, 1):
+        return proc.returncode == 0
+    gitignore = (root / ".gitignore").read_text(encoding="utf-8") if (root / ".gitignore").is_file() else ""
+    return entry.rstrip("/") in gitignore.splitlines() or entry in gitignore.splitlines()
+
+
 def check_files(cfg: dict, root: pathlib.Path) -> None:
     scratch = root / (get(cfg, "project.scratch_dir") or ".qa/runs")
     add("fs.scratch", "PASS" if scratch.is_dir() else "WARN", "" if scratch.is_dir() else f"{scratch.relative_to(root)} does not exist", False,
         None if scratch.is_dir() else {"kind": "auto", "action": "mkdir", "path": str(scratch)})
-    gitignore = (root / ".gitignore").read_text(encoding="utf-8") if (root / ".gitignore").is_file() else ""
     wanted = [str(scratch.relative_to(root)) + "/"]
     env_file = get(cfg, "backend.auth.env_file") or get(cfg, "task_source.auth.env_file")
     if env_file:
         wanted.append(env_file)
+    if (root / ".qa" / qa_config.LOCAL_NAME).is_file():
+        wanted.append(f".qa/{qa_config.LOCAL_NAME}")
     for entry in wanted:
-        ignored = entry.rstrip("/") in gitignore or entry in gitignore
-        add(f"git.ignore.{entry}", "PASS" if ignored else "WARN", "" if ignored else f"'{entry}' is not in .gitignore", False,
+        ignored = is_ignored(root, entry)
+        add(f"git.ignore.{entry}", "PASS" if ignored else "WARN", "" if ignored else f"'{entry}' is not git-ignored", False,
             None if ignored else {"kind": "auto", "action": "gitignore", "line": entry})
     context = root / (get(cfg, "project.context_file") or ".qa/project-context.md")
     add("fs.context", "PASS" if context.is_file() else "WARN", "" if context.is_file() else "project-context.md is missing", False,
@@ -151,7 +162,7 @@ def check_knowledge(cfg: dict, root: pathlib.Path) -> None:
         {"kind": "auto", "action": "kb-ingest", "docs": docs, "code": bool(get(cfg, "knowledge.code_map"))} if stale else None)
     add("kb.overview", "PASS" if (kdir / "overview.md").is_file() else "WARN", "" if (kdir / "overview.md").is_file() else "overview.md not written yet", False,
         None if (kdir / "overview.md").is_file() else {"kind": "user", "steps": ["agent: read index.md + codebase-map.md and write .qa/knowledge/overview.md (<= 60 lines)"]})
-    ignored = "chunks.jsonl" in ((root / ".gitignore").read_text(encoding="utf-8") if (root / ".gitignore").is_file() else "")
+    ignored = is_ignored(root, str(chunks.relative_to(root)))
     add("kb.chunks-ignored", "PASS" if ignored else "WARN", "" if ignored else "chunks.jsonl is derived and large: git-ignore it", False,
         None if ignored else {"kind": "auto", "action": "gitignore", "line": str(kdir.relative_to(root)) + "/chunks.jsonl"})
 
@@ -172,8 +183,9 @@ def check_tools(cfg: dict) -> None:
         port = int(get(cfg, "frontend.debug_port") or 9222)
         with socket.socket() as s:
             busy = s.connect_ex(("127.0.0.1", port)) == 0
-        add("tool.debug-port", "WARN" if busy else "PASS", f"port {port} already in use" if busy else "", False,
-            {"kind": "user", "steps": [f"close the process on port {port} or set frontend.debug_port to a free port"]} if busy else None)
+        # browser.sh moves to the next free port and records it in <scratch>/cdp.port, so a busy port
+        # (another QA run, another worktree) is information, not a problem.
+        add("tool.debug-port", "PASS", f"port {port} in use: the run will take the next free port" if busy else "")
     kind = get(cfg, "task_source.type")
     cli = {"azure-devops": "az", "github": "gh"}.get(kind)
     if cli and get(cfg, "task_source.auth.method") == "cli":
@@ -255,7 +267,8 @@ def check_live(cfg: dict, root: pathlib.Path) -> None:
     try:
         time.sleep(10)
         import os
-        env = {**os.environ, "APP_HOST": url.split("//")[-1].split("/")[0], "CDP_PORT": port, "NODE_PATH": subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip()}
+        env = {**os.environ, "APP_HOST": url.split("//")[-1].split("/")[0], "QA_SCRATCH": str(scratch), "NODE_PATH": subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip()}
+        env.pop("CDP_PORT", None)  # attach to the port browser.sh recorded for this scratch dir
         probe = subprocess.run(["node", str(QA_SCRIPTS / "frontend" / "probe.js")], capture_output=True, text=True, env=env, timeout=60)
         try:
             data = json.loads(probe.stdout.strip().splitlines()[-1])

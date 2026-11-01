@@ -210,6 +210,21 @@ PENDING is not a failure: it needs your decision or a visual check.
 
 No acceptance criteria? Bug report only? It still works: it writes its own test scenarios first and shows them.
 
+### Several tasks at once (git worktrees)
+
+Runs in different projects or worktrees keep their own browser, port and network log, and stopping
+one never stops another. For a worktree, test **its** code on **its** own dev server:
+```
+cp -R ../main/.qa . && mkdir -p .claude/skills \
+  && cp -R ../main/.claude/skills/qa-agent-<project> .claude/skills/   # only if these are not committed
+pnpm dev --port 8091                         # this worktree's dev server
+printf 'environments:\n  list:\n    local:\n      frontend_url: "http://localhost:8091"\n' > .qa/qa.config.local.yaml
+echo '.qa/qa.config.local.yaml' >> .gitignore   # per checkout, never committed
+```
+Without the local file, every worktree tests the URL in `qa.config.yaml`, which is the main
+checkout's server. Parallel runs share the backend and its database: give each task its own test
+data (accounts, records) so one run does not change what another one checks.
+
 ---
 
 ## 8. Something wrong?

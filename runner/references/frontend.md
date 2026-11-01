@@ -44,15 +44,23 @@ Read project-specific traps from `frontend.app_notes`.
 Never type credentials, never script a login form, never read/print/export cookies or tokens.
 Run `frontend.post_login_steps` (for example click "I Agree") whenever the notice is visible, again
 after every `page.reload()`. Scenarios `require` `scripts/frontend/lib.js` (`APP_HOST` = host:port,
-optional `CDP_PORT`); `run(fn)` attaches to the existing tab (session storage is per tab) and exits
+`QA_SCRATCH` = the scratch dir); `run(fn)` attaches to the existing tab (session storage is per tab) and exits
 without `browser.close()`. A scenario that lands on a login page -> stop and ask the user to log in
 again. After the last scenario: `browser.sh stop "<scratch>"`.
+
+Parallel runs (other projects, other git worktrees of this one) may be active. `<port>` is only the
+first port tried: when it is taken, `browser.sh` uses the next free one and prints it and writes it
+to `<scratch>/cdp.port`, which `lib.js` reads through `QA_SCRATCH`. Never pass a fixed `CDP_PORT`
+and never kill browsers or node processes yourself: `browser.sh stop "<scratch>"` stops only this
+run's browser and recorder.
 
 ## 4. Execution patterns
 
 - **Network log across scripts:** start `scripts/frontend/recorder.js <scratch>/net.jsonl` in the
-  background with `URL_FILTER=<api path fragment>` (Git Bash: prefix `MSYS_NO_PATHCONV=1` and pass a
-  Windows-style log path). Each scenario reads lines newer than its own start time.
+  background with `URL_FILTER=<api path fragment>` and `QA_SCRATCH=<scratch>` (Git Bash: prefix
+  `MSYS_NO_PATHCONV=1` and pass a Windows-style log path). Keep the log inside the scratch dir: the
+  recorder writes `recorder.pid` next to it, which is how `stop` finds it. Each scenario reads lines
+  newer than its own start time.
 - **Failure injection:** to test a failed request, `page.route(pattern, r => r.fulfill({status: 500, ...}))`
   then `page.unroute`. It affects that tab only and touches no backend or data. State it in the
   report. The same applies to mocking a missing endpoint: it checks the UI path only, the backend

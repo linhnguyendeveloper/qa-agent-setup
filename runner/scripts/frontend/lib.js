@@ -1,8 +1,25 @@
 // Attach to the manually logged-in browser over CDP (see references/frontend.md step 3).
 // Run with NODE_PATH="$(npm root -g)" so the global playwright install resolves.
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require('playwright');
 
-const PORT = process.env.CDP_PORT || 9222;
+// CDP_PORT wins; else the port browser.sh wrote to $QA_SCRATCH/cdp.port (it may have moved off the
+// requested port because another run already used it); else 9222.
+function cdpPort() {
+  if (process.env.CDP_PORT) return process.env.CDP_PORT;
+  const scratch = process.env.QA_SCRATCH;
+  if (scratch) {
+    try {
+      return fs.readFileSync(path.join(scratch, 'cdp.port'), 'utf8').trim();
+    } catch {
+      throw new Error(`no cdp.port in ${scratch}: start the browser with browser.sh first`);
+    }
+  }
+  return 9222;
+}
+
+const PORT = cdpPort();
 const HOST = process.env.APP_HOST;
 if (!HOST) throw new Error('APP_HOST is not set (host of the chosen environment)');
 

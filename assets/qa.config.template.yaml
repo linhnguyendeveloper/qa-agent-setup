@@ -86,7 +86,7 @@ backend:
 # ---------------------------------------------------------------- frontend validation (Playwright over CDP)
 frontend:
   browser: chrome              # edge | chrome (a Chromium browser the user already has)
-  debug_port: 9222
+  debug_port: 9222             # first port tried; a busy port moves the run to the next free one
   login:
     mode: profile-copy         # profile-copy (temporary copy of the user's logged-in profile) | manual (fresh browser, user logs in) | storage-state
     profile: Default           # profile-copy only: directory name from `browser.sh profiles <browser>`
